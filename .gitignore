@@ -1,0 +1,5 @@
+a.out
+*.o
+__pycache__/
+# Pesa más de 100 MB (límite de GitHub). Se regenera con 010-superpredictor.py
+conocimiento.db
