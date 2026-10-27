@@ -3,3 +3,7 @@ a.out
 __pycache__/
 # Pesa más de 100 MB (límite de GitHub). Se regenera con 010-superpredictor.py
 conocimiento.db
+
+# Copias automáticas de la extensión Local History de VS Code
+.history/
+*.history/
