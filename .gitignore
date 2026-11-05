@@ -7,3 +7,6 @@ conocimiento.db
 # Copias automáticas de la extensión Local History de VS Code
 .history/
 *.history/
+
+# Entorno virtual de Python (librerías locales)
+venv/
