@@ -11,11 +11,11 @@ from PIL import Image, ImageTk
 IP = "10.4.193.182"
 PUERTO = 5000
 
-cola = queue.Queue(maxsize=2)
+cola = queue.Queue(maxsize=1)
 activo = True
 
 ventana = tk.Tk()
-ventana.title("Receptor de webcam")
+ventana.title("Receptor webcam")
 
 etiqueta = tk.Label(ventana)
 etiqueta.pack()
@@ -23,13 +23,13 @@ etiqueta.pack()
 estado = tk.Label(ventana, text="Conectando...")
 estado.pack()
 
-conexion = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+def recibir_exacto(conexion, cantidad):
 
-def recibir_exacto(cantidad):
     datos = bytearray()
 
     while len(datos) < cantidad:
+
         bloque = conexion.recv(cantidad - len(datos))
 
         if not bloque:
@@ -41,18 +41,28 @@ def recibir_exacto(cantidad):
 
 
 def recibir():
+
     try:
-        conexion.connect((IP, PUERTO))
+
+        conexion = socket.create_connection(
+            (IP, PUERTO),
+            timeout=5
+        )
+
+        conexion.settimeout(10)
         conexion.sendall(b"R")
 
+        print("Receptor conectado")
+
         while activo:
-            cabecera = recibir_exacto(4)
+
+            cabecera = recibir_exacto(conexion, 4)
             longitud = struct.unpack("!I", cabecera)[0]
 
             if longitud == 0 or longitud > 2 * 1024 * 1024:
                 break
 
-            datos = recibir_exacto(longitud)
+            datos = recibir_exacto(conexion, longitud)
 
             frame = cv2.imdecode(
                 np.frombuffer(datos, dtype=np.uint8),
@@ -68,22 +78,36 @@ def recibir():
                 except queue.Empty:
                     pass
 
-            cola.put_nowait(frame)
+            try:
+                cola.put_nowait(frame)
+            except queue.Full:
+                pass
 
     except (OSError, ConnectionError) as error:
-        print("Conexión finalizada:", error)
+        print("Error:", error)
+
+    finally:
+        try:
+            conexion.close()
+        except UnboundLocalError:
+            pass
 
 
 def actualizar():
+
     if not activo:
         return
 
     try:
+
         frame = cola.get_nowait()
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(
+            frame,
+            cv2.COLOR_BGR2RGB
+        )
 
-        imagen = Image.fromarray(frame)
+        imagen = Image.fromarray(rgb)
         foto = ImageTk.PhotoImage(imagen)
 
         etiqueta.configure(image=foto)
@@ -101,7 +125,6 @@ def cerrar():
     global activo
 
     activo = False
-    conexion.close()
     ventana.destroy()
 
 

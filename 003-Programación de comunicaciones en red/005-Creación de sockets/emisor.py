@@ -1,6 +1,7 @@
 import socket
 import struct
 import threading
+import queue
 import tkinter as tk
 
 import cv2
@@ -9,74 +10,110 @@ from PIL import Image, ImageTk
 IP = "10.4.193.182"
 PUERTO = 5000
 
+FPS = 15
+CALIDAD = 60
+
+cola = queue.Queue(maxsize=1)
 activo = True
 
-conexion = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-conexion.connect((IP, PUERTO))
-conexion.sendall(b"E")
-
 camara = cv2.VideoCapture(0)
+
 camara.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 ventana = tk.Tk()
-ventana.title("Emisor de webcam")
+ventana.title("Emisor webcam")
 
 etiqueta = tk.Label(ventana)
 etiqueta.pack()
 
-estado = tk.Label(ventana, text="Transmitiendo...")
+estado = tk.Label(ventana, text="Conectando...")
 estado.pack()
 
 
 def transmitir():
     global activo
 
-    while activo:
-        correcto, frame = camara.read()
-
-        if not correcto:
-            break
-
-        frame = cv2.resize(frame, (640, 480))
-
-        correcto, comprimida = cv2.imencode(
-            ".jpg",
-            frame,
-            [cv2.IMWRITE_JPEG_QUALITY, 60]
+    try:
+        conexion = socket.create_connection(
+            (IP, PUERTO),
+            timeout=5
         )
 
-        if not correcto:
-            continue
+        conexion.settimeout(5)
+        conexion.sendall(b"E")
 
-        datos = comprimida.tobytes()
+        print("Conectado al servidor")
 
-        try:
+        while activo:
+
+            try:
+                frame = cola.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            correcto, comprimida = cv2.imencode(
+                ".jpg",
+                frame,
+                [cv2.IMWRITE_JPEG_QUALITY, CALIDAD]
+            )
+
+            if not correcto:
+                continue
+
+            datos = comprimida.tobytes()
+
             conexion.sendall(
                 struct.pack("!I", len(datos)) + datos
             )
-        except OSError:
-            break
 
-    activo = False
+    except (OSError, ConnectionError) as error:
+        print("Error de transmisión:", error)
+
+    finally:
+        activo = False
+        try:
+            conexion.close()
+        except UnboundLocalError:
+            pass
 
 
 def actualizar():
+
     if not activo:
+        estado.config(text="Transmisión detenida")
         return
 
     correcto, frame = camara.read()
 
     if correcto:
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        imagen = Image.fromarray(frame)
+        frame = cv2.resize(frame, (640, 480))
+
+        # Enviar el fotograma más reciente
+        if cola.full():
+            try:
+                cola.get_nowait()
+            except queue.Empty:
+                pass
+
+        try:
+            cola.put_nowait(frame.copy())
+        except queue.Full:
+            pass
+
+        # Mostrar webcam local
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        imagen = Image.fromarray(rgb)
         foto = ImageTk.PhotoImage(imagen)
 
         etiqueta.configure(image=foto)
         etiqueta.image = foto
 
-    ventana.after(33, actualizar)
+        estado.config(text="Capturando webcam")
+
+    ventana.after(int(1000 / FPS), actualizar)
 
 
 def cerrar():
@@ -84,7 +121,6 @@ def cerrar():
 
     activo = False
     camara.release()
-    conexion.close()
     ventana.destroy()
 
 
